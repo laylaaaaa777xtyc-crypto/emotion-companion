@@ -101,10 +101,10 @@ function triggerStyleTransfer() {
   const textInterval = setInterval(() => {
     textIdx = (textIdx + 1) % magicTexts.length;
     els.magicText.textContent = magicTexts[textIdx];
-  }, 950);
+  }, 520);
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s超时降级
+  const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s超时降级，比原 10s 更快兜底
 
   fetch("/api/style-transfer", {
     method: "POST",
@@ -346,12 +346,12 @@ function dragEnd() {
   isDragging = false;
 
   if (currentY > 50) {
-    els.paperBall.style.transition = "all 0.42s cubic-bezier(0.25, 1, 0.5, 1)";
+    els.paperBall.style.transition = "all 0.24s cubic-bezier(0.25, 1, 0.5, 1)";
     els.paperBall.style.transform = "translateY(-360px) scale(0.12)";
     els.paperBall.style.opacity = "0";
 
     if (navigator.vibrate) navigator.vibrate(50);
-    window.setTimeout(triggerEatEvent, 420);
+    window.setTimeout(triggerEatEvent, 240);
   } else {
     els.paperBall.style.transition = "transform 0.28s cubic-bezier(0.25, 1, 0.5, 1)";
     els.paperBall.style.transform = "translateY(0) scale(1)";
@@ -384,7 +384,7 @@ async function triggerEatEvent() {
       console.warn("VLM vent analysis request failed, falling back to mock.", err);
       return { success: false };
     }),
-    new Promise((resolve) => window.setTimeout(resolve, 1500))
+    new Promise((resolve) => window.setTimeout(resolve, 700))
   ]);
 
   els.digestion.classList.remove("active");
