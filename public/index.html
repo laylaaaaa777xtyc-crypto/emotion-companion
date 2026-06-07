@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>灵宠寻踪</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<div id="fallback-bg"></div>
+<video id="video" autoplay playsinline muted></video>
+<canvas id="sketch-snap" aria-hidden="true"></canvas>
+<div id="sketch-paper" aria-hidden="true"></div>
+<canvas id="boxes"></canvas>
+<div id="overlay"></div>
+<div id="stars"></div>
+
+<svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true">
+  <defs>
+    <filter id="sketch-filter" x="0" y="0" width="100%" height="100%">
+      <feGaussianBlur stdDeviation="0.55" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="
+        0.42 0.50 0.10 0 0.06
+        0.36 0.55 0.12 0 0.05
+        0.32 0.45 0.18 0 0.08
+        0    0    0    1 0" result="warm"/>
+      <feConvolveMatrix in="warm" order="3" preserveAlpha="true" divisor="1"
+        kernelMatrix="0 -1 0  -1 5 -1  0 -1 0"/>
+    </filter>
+    <filter id="paper-grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7"/>
+      <feColorMatrix values="0 0 0 0 0.92
+                              0 0 0 0 0.82
+                              0 0 0 0 0.68
+                              0 0 0 0.35 0"/>
+    </filter>
+  </defs>
+</svg>
+
+<!-- 顶部 HUD（游戏中常驻） -->
+<div id="hud">
+  <div class="timer-badge">
+    <div class="label">灵宠寻踪中</div>
+    <div class="clock" id="timer-clock">00:00</div>
+  </div>
+  <div class="paw-progress">
+    <div class="track">
+      <div class="fill" id="paw-fill"></div>
+      <div class="paw" data-i="0">🐾</div>
+      <div class="paw" data-i="1">🐾</div>
+      <div class="paw" data-i="2">🐾</div>
+      <div class="paw" data-i="3">✨</div>
+    </div>
+  </div>
+  <div class="round-btn-group">
+    <button class="round-btn" id="help-btn" aria-label="帮助">?<span class="cap">帮助</span></button>
+    <button class="round-btn" id="home-btn" aria-label="主页">⌂<span class="cap">主页</span></button>
+  </div>
+</div>
+
+<!-- 左上提示卡（游戏中常驻） -->
+<div class="hint-card" id="hint-card">
+  <span class="ttl">鉴宝提示</span>
+  把镜头对准物品，<br>识别到的物体会有灵宠附身。
+</div>
+
+<!-- 扫描遮罩 -->
+<div id="scan-overlay">
+  <div id="scan-circle"></div>
+  <div id="scan-text">正在感应周围的灵气...</div>
+</div>
+
+<button id="rescan-btn">↻ 重 扫</button>
+<button id="guess-btn">🔮 我要猜一猜</button>
+<div id="status-bar"></div>
+
+<div id="pet-final">🐱</div>
+
+<!-- 猜测弹窗 -->
+<div id="guess-modal" aria-hidden="true">
+  <div class="guess-card">
+    <button class="guess-close" id="guess-close" aria-label="关闭">×</button>
+    <h3>灵宠藏在哪里？</h3>
+    <div class="guess-sub">把你收集到的线索拼起来，猜猜它躲在哪个物品旁边</div>
+    <div class="guess-clues" id="guess-clues"></div>
+    <div class="guess-input-row">
+      <input id="guess-input" type="text" placeholder="输入物品名字，例如 椅子 / 瓶子 / 书…" autocomplete="off" maxlength="20">
+      <button id="guess-submit">提 交</button>
+    </div>
+    <div class="guess-feedback" id="guess-feedback"></div>
+  </div>
+</div>
+
+<!-- 微笑自拍上传弹窗 -->
+<div id="selfie-modal" aria-hidden="true">
+  <div class="selfie-card">
+    <button class="selfie-close" id="selfie-close" aria-label="关闭">×</button>
+    <h3>📸 和灵宠的拍拍乐</h3>
+    <div class="selfie-sub">笑一笑～<br>上传一张照片，给你和小灵宠生成一张拍立得</div>
+    <label class="selfie-drop" for="selfie-file" id="selfie-drop">
+      <input id="selfie-file" type="file" accept="image/*" capture="user" hidden>
+      <div class="selfie-prompt" id="selfie-prompt">
+        <div class="selfie-ic">📷</div>
+        <div class="selfie-tip">点击上传 / 拍一张</div>
+      </div>
+      <img class="selfie-preview" id="selfie-preview" alt="" hidden>
+    </label>
+    <button id="selfie-done" disabled>生 成 拍 立 得</button>
+  </div>
+</div>
+
+<!-- 拍立得展示 -->
+<div id="polaroid-overlay" aria-hidden="true">
+  <div class="polaroid" id="polaroid-card">
+    <div class="polaroid-photo-wrap">
+      <div class="polaroid-bg">
+        <div class="bg-stars">
+          <span>✦</span><span>✧</span><span>✦</span><span>✧</span>
+          <span>✦</span><span>✧</span><span>✦</span><span>✧</span>
+        </div>
+        <div class="bg-burst"></div>
+      </div>
+      <img class="polaroid-photo" id="polaroid-photo" alt="">
+      <img class="polaroid-sticker" src="/assets/pet-sticker.png" alt="">
+    </div>
+    <div class="polaroid-caption">
+      <div class="cap-lace top"></div>
+      <div class="cap-text">
+        <span class="cap-heart">💗</span>
+        <span class="cap-line1">和小灵宠的美好回忆 ！</span>
+        <span class="cap-star">✨</span>
+      </div>
+      <div class="cap-date" id="polaroid-date"></div>
+      <div class="cap-lace bottom"></div>
+    </div>
+  </div>
+  <div class="polaroid-actions">
+    <button id="polaroid-again">再玩一次</button>
+  </div>
+</div>
+
+<!-- 小灵宠现身视频 -->
+<div id="pet-reveal" aria-hidden="true">
+  <video id="pet-reveal-video" muted playsinline preload="auto">
+    <source src="/assets/pet-final.webm" type="video/webm">
+  </video>
+  <div class="pet-reveal-msg" id="pet-reveal-msg">✨ 你找到它了！✨</div>
+</div>
+
+<!-- 开局灵宠自述 -->
+<div id="pet-intro-scene" aria-hidden="true">
+  <div class="intro-pet-wrap">
+    <video id="intro-pet-video" src="/assets/pet-intro.webm" muted playsinline loop preload="auto"></video>
+  </div>
+  <div class="intro-dialog-card" id="intro-dialog-card">
+    <div class="intro-speaker">迷路的小灵宠</div>
+    <div class="intro-line" id="intro-dialog-line"></div>
+    <button id="intro-next-btn" type="button">点击继续</button>
+  </div>
+</div>
+
+<!-- 帮助弹窗 -->
+<div id="help-modal">
+  <div class="card">
+    <h3>玩 法 说 明</h3>
+    <ul>
+      <li>把摄像头对准房间里的物品（书 / 杯子 / 盆栽 / 电脑等）</li>
+      <li>识别到的物品上会浮现表情，它是被灵宠"附身"了</li>
+      <li>点击物品，听灵宠说话、收集线索</li>
+      <li>集齐 3 个线索，找到「最温暖、最有光的地方」</li>
+      <li>右下角「重扫」可以换角度重新识别</li>
+    </ul>
+    <button class="close" id="help-close">好 哒</button>
+  </div>
+</div>
+
+<!-- 开始界面 -->
+<div id="start-screen">
+  <div class="start-glow"></div>
+  <!-- 顶部 HUD（开始页里也露出一截，作为视觉氛围） -->
+  <div class="start-top-hud">
+    <div class="timer-badge">
+      <div class="label">灵宠寻踪中</div>
+      <div class="clock">00:00</div>
+    </div>
+    <div class="paw-progress">
+      <div class="track">
+        <div class="fill" style="width:0"></div>
+        <div class="paw" data-i="0">🐾</div>
+        <div class="paw" data-i="1">🐾</div>
+        <div class="paw" data-i="2">🐾</div>
+        <div class="paw" data-i="3">✨</div>
+      </div>
+    </div>
+    <div class="round-btn-group">
+      <div class="round-btn" aria-hidden="true">?<span class="cap">帮助</span></div>
+      <div class="round-btn" aria-hidden="true">⌂<span class="cap">主页</span></div>
+    </div>
+  </div>
+
+  <div class="start-hint-card">
+    <span class="ttl">鉴宝提示</span>
+    可疑区域有<br>柔和能量波动
+  </div>
+
+  <div class="start-main">
+    <div class="start-stage">
+      <div class="start-textcol">
+        <div id="start-title">灵宠解忧馆</div>
+        <div class="title-paws">
+          <span class="line"></span>
+          <span>🐾</span><span>🌸</span><span>🐾</span>
+          <span class="line"></span>
+        </div>
+        <div id="start-sub">一场温暖的小小冒险</div>
+        <div class="start-btn-row">
+          <button id="start-btn">捉 迷 藏 模 式</button>
+          <button id="emotion-btn" type="button" onclick="window.location.href='/emotion.html'">表 情 识 别</button>
+        </div>
+        <div id="start-hint">
+          需要开启摄像头权限<br>
+          把镜头朝向桌面 / 房间 / 物品<br>
+          拒绝权限也可以游玩（梦幻背景）
+        </div>
+      </div>
+
+      <div class="start-pet-stage">
+        <div class="pet-art pet-mascot" aria-hidden="true">
+          <img class="mascot-img" src="/assets/pet-mascot-crying.png" alt="灵宠">
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- 椅子专属对话覆盖层 -->
+<div id="chair-dialog" aria-hidden="true">
+  <div class="chair-stage">
+    <img class="chair-bg" src="/assets/chair-dialog.png" alt="会等待的椅子">
+    <button class="chair-dialog-close" id="chair-dialog-close" aria-label="关闭">×</button>
+
+    <!-- 左侧旁白气泡（你 / 小灵宠说） -->
+    <div class="chair-bubble chair-bubble-left" id="chair-bubble-left">
+      <div class="cb-text"><span class="cb-typed"></span><span class="cb-cursor"></span></div>
+    </div>
+
+    <!-- 右侧椅子心事面板 -->
+    <div class="chair-bubble chair-bubble-right" id="chair-bubble-right">
+      <div class="cb-title">椅子的心事</div>
+      <div class="cb-text"><span class="cb-typed"></span><span class="cb-cursor"></span></div>
+      <button class="cb-next-btn" id="chair-next-btn">继续倾听 ›</button>
+    </div>
+
+    <div class="chair-dialog-footer" id="chair-dialog-footer">点击右侧「继续倾听」推进对话</div>
+  </div>
+</div>
+
+<!-- 结局界面 -->
+<div id="ending">
+  <div id="ending-pet">🐱</div>
+  <div id="ending-text"></div>
+  <button id="ending-btn">再 玩 一 次</button>
+</div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
