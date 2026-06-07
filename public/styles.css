@@ -766,7 +766,7 @@ html, body {
 
 /* 我要猜按钮 */
 #guess-btn {
-  position: fixed; bottom: clamp(18px, 4vh, 38px); left: 50%;
+  position: fixed; bottom: clamp(50px, 8vh, 88px); left: 50%;
   transform: translateX(-50%);
   z-index: 12; display: none;
   background: linear-gradient(180deg, #ffd0e3, #ff7fa6);
